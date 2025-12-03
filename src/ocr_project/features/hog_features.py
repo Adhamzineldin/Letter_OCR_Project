@@ -2,6 +2,7 @@
 import numpy as np
 from skimage.feature import hog
 from .base import BaseFeatureExtractor
+from .. import config
 
 class HOGFeatureExtractor(BaseFeatureExtractor):
     """Extract HOG features from images."""
@@ -18,6 +19,10 @@ class HOGFeatureExtractor(BaseFeatureExtractor):
     def transform(self, images: np.ndarray) -> np.ndarray:
         features = []
         for img in images:
+            # If we get flattened vectors (n_samples, 28*28) from the pipeline,
+            # reshape back to (H, W) so HOG can be computed correctly.
+            if img.ndim == 1:
+                img = img.reshape(config.IMAGE_HEIGHT, config.IMAGE_WIDTH)
             feat = hog(
                     img,
                     pixels_per_cell=self.pixels_per_cell,

@@ -17,8 +17,10 @@ def emnist_label_to_letter(label: int) -> str:
 def prepare_single_image_for_model(img_28x28: np.ndarray) -> np.ndarray:
     """
     Take a single 28x28 grayscale image and convert it to the same representation
-    used for model training: shape (1, 28*28) and normalized to [0, 1].
+    used for model training: EMNIST orientation fix, shape (1, 28*28) and
+    normalized to [0, 1].
     """
+    # Ensure float in [0, 1]
     img = img_28x28.astype(np.float32) / 255.0
 
     # Ensure shape (1, H, W)
@@ -31,6 +33,11 @@ def prepare_single_image_for_model(img_28x28: np.ndarray) -> np.ndarray:
             f"Expected image of shape ({config.IMAGE_HEIGHT}, {config.IMAGE_WIDTH}), "
             f"got {img.shape[1:]}"
         )
+
+    # Apply the same orientation fix used when loading EMNIST from CSV
+    # (see EmnistLoader._load_csv): transpose and horizontal flip.
+    img = np.transpose(img, (0, 2, 1))
+    img = np.flip(img, axis=2)
 
     n = img.shape[0]
     return img.reshape(n, -1)

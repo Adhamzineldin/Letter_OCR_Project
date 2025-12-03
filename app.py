@@ -35,23 +35,59 @@ def load_test_data():
     return images, labels, X_test
 
 
+FEATURE_DIRS = {
+    "pixels": PROJECT_ROOT / "artifacts_pixels",
+    "hog": PROJECT_ROOT / "artifacts_hog",
+    "pca": PROJECT_ROOT / "artifacts_pca",
+}
+
+
 @st.cache_resource
-def load_models():
-    dt_artifact = joblib.load(PROJECT_ROOT / "artifacts" / "decision_tree.pkl")
-    rf_artifact = joblib.load(PROJECT_ROOT / "artifacts" / "random_forest.pkl")
+def load_models(feature_type: str):
+    """
+    Load models + feature extractor for a given feature type.
+    """
+    base_dir = FEATURE_DIRS[feature_type]
+    dt_artifact = joblib.load(base_dir / "decision_tree.pkl")
+    rf_artifact = joblib.load(base_dir / "random_forest.pkl")
 
     dt_model = dt_artifact["model"]
     rf_model = rf_artifact["model"]
     dt_acc = dt_artifact.get("accuracy")
     rf_acc = rf_artifact.get("accuracy")
-    return dt_model, rf_model, dt_acc, rf_acc
+
+    metadata_dt = dt_artifact.get("metadata", {}) or {}
+    metadata_rf = rf_artifact.get("metadata", {}) or {}
+    feature_extractor = metadata_dt.get("feature_extractor") or metadata_rf.get(
+        "feature_extractor"
+    )
+
+    return dt_model, rf_model, dt_acc, rf_acc, feature_extractor
+
+
+def load_all_accuracies() -> dict[str, dict[str, float | None]]:
+    """
+    Read accuracies for all (feature_type, model) combos from artifacts.
+    """
+    results: dict[str, dict[str, float | None]] = {}
+    for ft, base_dir in FEATURE_DIRS.items():
+        try:
+            dt_artifact = joblib.load(base_dir / "decision_tree.pkl")
+            rf_artifact = joblib.load(base_dir / "random_forest.pkl")
+        except FileNotFoundError:
+            continue
+
+        results[ft] = {
+            "decision_tree": dt_artifact.get("accuracy"),
+            "random_forest": rf_artifact.get("accuracy"),
+        }
+    return results
 
 
 def main() -> None:
     st.title("Handwritten Letter OCR – Decision Tree vs Random Forest")
 
-    images, labels, X_test = load_test_data()
-    dt_model, rf_model, dt_acc, rf_acc = load_models()
+    images, labels, X_test_raw = load_test_data()
 
     # Sidebar: high-level navigation + aggregate metrics
     st.sidebar.header("Navigation")
@@ -62,7 +98,28 @@ def main() -> None:
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.header("Model comparison")
+    feature_labels = {
+        "pixels": "Pixels only",
+        "hog": "HOG features",
+        "pca": "PCA features",
+    }
+    feature_type = st.sidebar.selectbox(
+        "Feature type",
+        options=list(FEATURE_DIRS.keys()),
+        format_func=lambda k: feature_labels.get(k, k),
+    )
+
+    dt_model, rf_model, dt_acc, rf_acc, feature_extractor = load_models(feature_type)
+
+    # If the models were trained with a feature extractor (e.g. HOG or PCA),
+    # apply the same transformation to the test features.
+    if feature_extractor is not None:
+        X_test = feature_extractor.transform(X_test_raw)
+    else:
+        X_test = X_test_raw
+
+    # Sidebar: aggregate comparison
+    st.sidebar.header("Model comparison (current feature type)")
     if dt_acc is not None and rf_acc is not None:
         st.sidebar.write(f"Decision Tree accuracy: **{dt_acc:.3%}**")
         st.sidebar.write(f"Random Forest accuracy: **{rf_acc:.3%}**")
@@ -71,7 +128,7 @@ def main() -> None:
         st.sidebar.write(f"Absolute difference (RF - DT): **{diff:.3%}**")
         st.sidebar.write(f"Relative improvement of RF over DT: **{pct_diff:.2f}%**")
     else:
-        st.sidebar.write("Train and save models first (via the notebook or pipeline).")
+        st.sidebar.write("Train and save models first via the notebook.")
 
     if page == "Interactive demo":
         st.sidebar.markdown("---")
@@ -139,7 +196,13 @@ def main() -> None:
             st.image(img_pil, caption="Uploaded image (resized to 28×28)", width=150)
 
             img_arr = np.array(img_pil)
-            x = prepare_single_image_for_model(img_arr)
+            x_raw = prepare_single_image_for_model(img_arr)
+
+            # Apply the same feature transformation used at training time.
+            if feature_extractor is not None:
+                x = feature_extractor.transform(x_raw)
+            else:
+                x = x_raw
 
             dt_pred = int(dt_model.predict(x)[0])
             rf_pred = int(rf_model.predict(x)[0])
@@ -161,12 +224,36 @@ def main() -> None:
     elif page == "Evaluation & graphs":
         st.header("Evaluation & graphs")
 
+        # --- Per-feature-type accuracy overview ---
+        all_accs = load_all_accuracies()
+        if all_accs:
+            st.subheader("Accuracy overview (all feature types)")
+            rows = []
+            for ft, models in all_accs.items():
+                for model_name, acc in models.items():
+                    if acc is None:
+                        continue
+                    rows.append((feature_labels.get(ft, ft), model_name, acc))
+
+            if rows:
+                import pandas as pd
+
+                df = pd.DataFrame(rows, columns=["Feature type", "Model", "Accuracy"])
+                st.dataframe(
+                    df.style.format({"Accuracy": "{:.3%}"}),
+                    use_container_width=True,
+                )
+
+        # --- Detailed plots for the currently selected feature type ---
+        st.subheader(
+            f"Detailed evaluation for {feature_labels.get(feature_type, feature_type)}"
+        )
+
         # Compute predictions on the full test set
         dt_preds = dt_model.predict(X_test)
         rf_preds = rf_model.predict(X_test)
 
         # Summary metrics
-        st.subheader("Summary metrics")
         col1, col2 = st.columns(2)
         with col1:
             dt_acc_full = (dt_preds == labels).mean()

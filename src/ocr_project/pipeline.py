@@ -137,10 +137,16 @@ class OCRPipeline:
 
         for key, result in self.results.items():
             artifact_path = self.artifacts_dir / f"{key}.pkl"
+            metadata = {}
+            if self.feature_extractor is not None:
+                # Persist the feature extractor so the app can apply the same
+                # transformation at inference time.
+                metadata["feature_extractor"] = self.feature_extractor
             save_model_artifact(
                 artifact_path,
                 model=result.model,
                 accuracy=result.accuracy,
+                metadata=metadata or None,
             )
 
     def run(self) -> Dict[str, ModelResult]:
