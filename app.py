@@ -5,6 +5,9 @@ import joblib
 import numpy as np
 from PIL import Image
 import streamlit as st
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report
 
 
 # Ensure the src directory is on sys.path so we can import the package
@@ -50,7 +53,15 @@ def main() -> None:
     images, labels, X_test = load_test_data()
     dt_model, rf_model, dt_acc, rf_acc = load_models()
 
-    # Sidebar: aggregate comparison
+    # Sidebar: high-level navigation + aggregate metrics
+    st.sidebar.header("Navigation")
+    page = st.sidebar.radio(
+        "Page",
+        ["Interactive demo", "Evaluation & graphs"],
+        index=0,
+    )
+
+    st.sidebar.markdown("---")
     st.sidebar.header("Model comparison")
     if dt_acc is not None and rf_acc is not None:
         st.sidebar.write(f"Decision Tree accuracy: **{dt_acc:.3%}**")
@@ -60,16 +71,19 @@ def main() -> None:
         st.sidebar.write(f"Absolute difference (RF - DT): **{diff:.3%}**")
         st.sidebar.write(f"Relative improvement of RF over DT: **{pct_diff:.2f}%**")
     else:
-        st.sidebar.write("Train and save models first (run scripts/train_two_models.py).")
+        st.sidebar.write("Train and save models first (via the notebook or pipeline).")
 
-    st.sidebar.markdown("---")
-    mode = st.sidebar.radio(
-        "Mode",
-        ["Browse test set", "Upload your own image"],
-        index=0,
-    )
+    if page == "Interactive demo":
+        st.sidebar.markdown("---")
+        mode = st.sidebar.radio(
+            "Mode",
+            ["Browse test set", "Upload your own image"],
+            index=0,
+        )
+    else:
+        mode = None
 
-    if mode == "Browse test set":
+    if page == "Interactive demo" and mode == "Browse test set":
         st.header("Browse EMNIST test images")
 
         idx = st.slider("Test sample index", 0, len(images) - 1, 0)
@@ -90,20 +104,31 @@ def main() -> None:
         rf_letter = emnist_label_to_letter(rf_pred)
 
         st.subheader("Model predictions")
-        st.write(f"Decision Tree: **{dt_pred}** → **'{dt_letter}'**")
-        st.write(f"Random Forest: **{rf_pred}** → **'{rf_letter}'**")
 
         correct_dt = dt_pred == true_label
         correct_rf = rf_pred == true_label
-        st.write(
-            f"Decision Tree correct? **{correct_dt}** | "
-            f"Random Forest correct? **{correct_rf}**"
-        )
-    else:
-        st.header("Upload your own 28×28 grayscale letter")
+
+        if correct_dt:
+            st.success(f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** ✅ (correct)")
+        else:
+            st.error(
+                f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** ❌ "
+                f"(true label: **{true_label}** → **'{true_letter}'**)"
+            )
+
+        if correct_rf:
+            st.success(f"Random Forest: **{rf_pred}** → **'{rf_letter}'** ✅ (correct)")
+        else:
+            st.error(
+                f"Random Forest: **{rf_pred}** → **'{rf_letter}'** ❌ "
+                f"(true label: **{true_label}** → **'{true_letter}'**)"
+            )
+
+    elif page == "Interactive demo" and mode == "Upload your own image":
+        st.header("Upload your own handwritten letter")
 
         uploaded_file = st.file_uploader(
-            "Upload an image (will be converted to 28×28 grayscale)",
+            "Upload an image (any size/colour – it will be converted to a 28×28 grayscale EMNIST-style input)",
             type=["png", "jpg", "jpeg"],
         )
 
@@ -122,6 +147,7 @@ def main() -> None:
             rf_letter = emnist_label_to_letter(rf_pred)
 
             st.subheader("Model predictions on your image")
+            st.info("No ground-truth label here, so we just show what each model predicts.")
             st.write(f"Decision Tree: **{dt_pred}** → **'{dt_letter}'**")
             st.write(f"Random Forest: **{rf_pred}** → **'{rf_letter}'**")
 
@@ -131,6 +157,50 @@ def main() -> None:
                 st.info(
                     "The models disagree on this example – this may be interesting for error analysis."
                 )
+
+    elif page == "Evaluation & graphs":
+        st.header("Evaluation & graphs")
+
+        # Compute predictions on the full test set
+        dt_preds = dt_model.predict(X_test)
+        rf_preds = rf_model.predict(X_test)
+
+        # Summary metrics
+        st.subheader("Summary metrics")
+        col1, col2 = st.columns(2)
+        with col1:
+            dt_acc_full = (dt_preds == labels).mean()
+            st.metric("Decision Tree accuracy", f"{dt_acc_full:.3%}")
+        with col2:
+            rf_acc_full = (rf_preds == labels).mean()
+            st.metric("Random Forest accuracy", f"{rf_acc_full:.3%}")
+
+        # Confusion matrices
+        st.subheader("Confusion matrices")
+        cm_dt = confusion_matrix(labels, dt_preds)
+        cm_rf = confusion_matrix(labels, rf_preds)
+
+        fig1, ax1 = plt.subplots(figsize=(8, 6))
+        sns.heatmap(cm_dt, ax=ax1, cmap="Greens", annot=False)
+        ax1.set_title("Decision Tree – Confusion Matrix")
+        ax1.set_xlabel("Predicted label")
+        ax1.set_ylabel("True label")
+        st.pyplot(fig1)
+
+        fig2, ax2 = plt.subplots(figsize=(8, 6))
+        sns.heatmap(cm_rf, ax=ax2, cmap="Blues", annot=False)
+        ax2.set_title("Random Forest – Confusion Matrix")
+        ax2.set_xlabel("Predicted label")
+        ax2.set_ylabel("True label")
+        st.pyplot(fig2)
+
+        # Classification reports
+        st.subheader("Classification reports")
+        st.markdown("**Decision Tree**")
+        st.text(classification_report(labels, dt_preds, zero_division=0))
+
+        st.markdown("**Random Forest**")
+        st.text(classification_report(labels, rf_preds, zero_division=0))
 
 
 if __name__ == "__main__":
