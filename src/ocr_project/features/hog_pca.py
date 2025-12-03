@@ -50,3 +50,4 @@ class HOGPCAFeatures(BaseFeatureExtractor):
         return self.pca.transform(combined)
 
 
+

@@ -68,6 +68,27 @@ def load_models(feature_type: str):
     return dt_model, rf_model, dt_acc, rf_acc, feature_extractor
 
 
+@st.cache_resource
+def get_transformed_test_features(feature_type: str):
+    """
+    Return test images, labels and **feature-transformed** test matrix for a given
+    feature type.
+
+    This runs the expensive `feature_extractor.transform` over the full test set
+    only once per feature type instead of on every Streamlit rerun (e.g. when
+    you move the sample slider).
+    """
+    images, labels, X_test_raw = load_test_data()
+    _, _, _, _, feature_extractor = load_models(feature_type)
+
+    if feature_extractor is not None:
+        X_test = feature_extractor.transform(X_test_raw)
+    else:
+        X_test = X_test_raw
+
+    return images, labels, X_test
+
+
 def load_all_accuracies() -> dict[str, dict[str, float | None]]:
     """
     Read accuracies for all (feature_type, model) combos from artifacts.
@@ -90,7 +111,8 @@ def load_all_accuracies() -> dict[str, dict[str, float | None]]:
 def main() -> None:
     st.title("Handwritten Letter OCR – Decision Tree vs Random Forest")
 
-    images, labels, X_test_raw = load_test_data()
+    # Cache-heavy test features (including any HOG/PCA transforms) per feature type
+    # so slider changes don't recompute them every time.
 
     # Sidebar: high-level navigation + aggregate metrics
     st.sidebar.header("Navigation")
@@ -114,13 +136,7 @@ def main() -> None:
     )
 
     dt_model, rf_model, dt_acc, rf_acc, feature_extractor = load_models(feature_type)
-
-    # If the models were trained with a feature extractor (e.g. HOG or PCA),
-    # apply the same transformation to the test features.
-    if feature_extractor is not None:
-        X_test = feature_extractor.transform(X_test_raw)
-    else:
-        X_test = X_test_raw
+    images, labels, X_test = get_transformed_test_features(feature_type)
 
     # Sidebar: aggregate comparison
     st.sidebar.header("Model comparison (current feature type)")
