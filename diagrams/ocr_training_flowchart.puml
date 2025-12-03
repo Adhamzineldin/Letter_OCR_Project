@@ -1,0 +1,25 @@
+@startuml
+title OCR Training Pipeline - Flowchart
+
+start
+  :Start Training;
+  :Load config (paths, params);
+  :Load EMNIST train/test CSVs\nvia EmnistLoader;
+  :Preprocess images\n(Transformer.flatten + normalize);
+  :Initialize Decision Tree model;
+  :Train Decision Tree with Trainer;
+  :Evaluate Decision Tree\n(Evaluator);
+  :Store accuracy + model;
+  :Initialize Random Forest model;
+  :Train Random Forest with Trainer;
+  :Evaluate Random Forest\n(Evaluator);
+  :Store accuracy + model;
+  if (Save artifacts?) then (yes)
+    :Save models + accuracies\nvia persistence.save_model_artifact;
+  endif
+  :End Training;
+stop
+
+@enduml
+
+

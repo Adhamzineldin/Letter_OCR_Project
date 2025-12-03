@@ -15,7 +15,9 @@ class Evaluator:
         """
         y_pred = self.model.predict(X)
         acc = accuracy_score(y, y_pred)
-        report = classification_report(y, y_pred)
+        # zero_division=0 avoids noisy warnings when some labels
+        # are missing in the evaluation subset.
+        report = classification_report(y, y_pred, zero_division=0)
         return acc, report
 
     def plot_confusion_matrix(self, X, y, figsize=(10, 8)):

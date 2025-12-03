@@ -1,0 +1,24 @@
+@startuml
+title OCR Letter Recognition - Block Diagram
+
+component "Data Source\n(EMNIST CSV)" as Data
+component "Dataset Loader\nEmnistLoader" as Loader
+component "Preprocess\nTransformer" as Preprocess
+component "Feature Space\n(Flattened + Normalized Pixels)" as Features
+component "Model Training\nDecision Tree / Random Forest\n+ Trainer" as Training
+component "Evaluation\nEvaluator + Visualizer" as Evaluation
+component "Artifacts\n(.pkl models)" as Artifacts
+component "GUI\n(Streamlit App)" as GUI
+
+Data --> Loader
+Loader --> Preprocess
+Preprocess --> Features
+Features --> Training
+Training --> Evaluation
+Training --> Artifacts
+Artifacts --> GUI
+GUI --> Evaluation : Optional\n(test set browse)
+
+@enduml
+
+

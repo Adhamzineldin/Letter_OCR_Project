@@ -1,0 +1,26 @@
+@startuml
+title OCR Letter Recognition - Use Case Diagram
+
+actor "User" as User
+
+rectangle "OCR System" {
+  usecase "Train Models" as UC_Train
+  usecase "View Evaluation\n(accuracy, confusion matrix)" as UC_Eval
+  usecase "Classify Test Images" as UC_Test
+  usecase "Upload Custom Image\nfor Prediction" as UC_Upload
+  usecase "Compare Models\n(Decision Tree vs Random Forest)" as UC_Compare
+}
+
+User --> UC_Train
+User --> UC_Eval
+User --> UC_Test
+User --> UC_Upload
+User --> UC_Compare
+
+UC_Train ..> UC_Eval : «includes»
+UC_Test ..> UC_Compare : «includes»
+UC_Upload ..> UC_Compare : «includes»
+
+@enduml
+
+
