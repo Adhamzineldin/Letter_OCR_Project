@@ -39,6 +39,9 @@ FEATURE_DIRS = {
     "pixels": PROJECT_ROOT / "artifacts_pixels",
     "hog": PROJECT_ROOT / "artifacts_hog",
     "pca": PROJECT_ROOT / "artifacts_pca",
+    # Default "strong" pipeline: combined HOG + PCA features.
+    # Artifacts are saved by OCRPipeline.run_default_pipeline() into `artifacts/`.
+    "hog_pca": PROJECT_ROOT / "artifacts",
 }
 
 
@@ -102,6 +105,7 @@ def main() -> None:
         "pixels": "Pixels only",
         "hog": "HOG features",
         "pca": "PCA features",
+        "hog_pca": "HOG + PCA (combined)",
     }
     feature_type = st.sidebar.selectbox(
         "Feature type",

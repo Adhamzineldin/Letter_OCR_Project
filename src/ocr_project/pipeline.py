@@ -15,6 +15,7 @@ from .preprocess.transformer import Transformer
 from .training.trainer import Trainer
 from .evaluation.evaluator import Evaluator
 from .features.base import BaseFeatureExtractor
+from .features.hog_pca import HOGPCAFeatures
 
 
 @dataclass
@@ -161,9 +162,13 @@ class OCRPipeline:
 
 def run_default_pipeline() -> Dict[str, ModelResult]:
     """
-    Helper for scripts and notebooks: run pipeline with default config.
+    Helper for scripts and notebooks: run the **default HOG+PCA pipeline**.
+
+    This uses the combined HOG + PCA feature extractor and saves artifacts
+    into the top-level ``artifacts/`` directory, which the Streamlit app
+    treats as the "HOG + PCA" feature option.
     """
-    pipeline = OCRPipeline()
+    pipeline = OCRPipeline(feature_extractor=HOGPCAFeatures())
     return pipeline.run()
 
 

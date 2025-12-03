@@ -34,11 +34,6 @@ def prepare_single_image_for_model(img_28x28: np.ndarray) -> np.ndarray:
             f"got {img.shape[1:]}"
         )
 
-    # Apply the same orientation fix used when loading EMNIST from CSV
-    # (see EmnistLoader._load_csv): transpose and horizontal flip.
-    img = np.transpose(img, (0, 2, 1))
-    img = np.flip(img, axis=2)
-
     n = img.shape[0]
     return img.reshape(n, -1)
 
