@@ -89,6 +89,32 @@ def get_transformed_test_features(feature_type: str):
     return images, labels, X_test
 
 
+def get_top_predictions(proba: np.ndarray, model_classes: np.ndarray, top_k: int = 10) -> list[tuple[int, str, float]]:
+    """
+    Get top K predictions with their labels, letters, and confidence percentages.
+    
+    Args:
+        proba: Probability array from predict_proba() (ordered by model.classes_)
+        model_classes: The classes_ attribute from the model (maps proba index to label)
+        top_k: Number of top predictions to return
+    
+    Returns:
+        List of tuples: (label, letter, confidence_percentage)
+    """
+    # Get indices sorted by probability (descending)
+    top_indices = np.argsort(proba)[::-1][:top_k]
+    
+    results = []
+    for idx in top_indices:
+        # Map probability index to actual class label
+        label = int(model_classes[idx])
+        letter = emnist_label_to_letter(label)
+        confidence = proba[idx] * 100
+        results.append((label, letter, confidence))
+    
+    return results
+
+
 def load_all_accuracies() -> dict[str, dict[str, float | None]]:
     """
     Read accuracies for all (feature_type, model) combos from artifacts.
@@ -179,6 +205,16 @@ def main() -> None:
         rf_pred = int(rf_model.predict(x)[0])
         dt_letter = emnist_label_to_letter(dt_pred)
         rf_letter = emnist_label_to_letter(rf_pred)
+        
+        # Get confidence scores
+        dt_proba = dt_model.predict_proba(x)[0]
+        rf_proba = rf_model.predict_proba(x)[0]
+        
+        # Map predictions to probability indices using classes_
+        dt_pred_idx = np.where(dt_model.classes_ == dt_pred)[0][0]
+        rf_pred_idx = np.where(rf_model.classes_ == rf_pred)[0][0]
+        dt_confidence = dt_proba[dt_pred_idx] * 100
+        rf_confidence = rf_proba[rf_pred_idx] * 100
 
         st.subheader("Model predictions")
 
@@ -186,20 +222,56 @@ def main() -> None:
         correct_rf = rf_pred == true_label
 
         if correct_dt:
-            st.success(f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** ✅ (correct)")
+            st.success(
+                f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** "
+                f"(confidence: **{dt_confidence:.2f}%**) ✅ (correct)"
+            )
         else:
             st.error(
-                f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** ❌ "
+                f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** "
+                f"(confidence: **{dt_confidence:.2f}%**) ❌ "
                 f"(true label: **{true_label}** → **'{true_letter}'**)"
             )
 
         if correct_rf:
-            st.success(f"Random Forest: **{rf_pred}** → **'{rf_letter}'** ✅ (correct)")
+            st.success(
+                f"Random Forest: **{rf_pred}** → **'{rf_letter}'** "
+                f"(confidence: **{rf_confidence:.2f}%**) ✅ (correct)"
+            )
         else:
             st.error(
-                f"Random Forest: **{rf_pred}** → **'{rf_letter}'** ❌ "
+                f"Random Forest: **{rf_pred}** → **'{rf_letter}'** "
+                f"(confidence: **{rf_confidence:.2f}%**) ❌ "
                 f"(true label: **{true_label}** → **'{true_letter}'**)"
             )
+        
+        # Top 10 predictions details
+        st.markdown("---")
+        with st.expander("📊 View Details: Top 10 Predictions", expanded=False):
+            dt_top10 = get_top_predictions(dt_proba, dt_model.classes_, top_k=10)
+            rf_top10 = get_top_predictions(rf_proba, rf_model.classes_, top_k=10)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Decision Tree - Top 10 Guesses")
+                for rank, (label, letter, conf) in enumerate(dt_top10, 1):
+                    is_correct = label == true_label
+                    marker = "✅" if is_correct else ""
+                    st.write(
+                        f"{rank}. Label **{label}** → **'{letter}'** "
+                        f": **{conf:.2f}%** {marker}"
+                    )
+            
+            with col2:
+                st.subheader("Random Forest - Top 10 Guesses")
+                for rank, (label, letter, conf) in enumerate(rf_top10, 1):
+                    is_correct = label == true_label
+                    marker = "✅" if is_correct else ""
+                    st.write(
+                        f"{rank}. Label **{label}** → **'{letter}'** "
+                        f": **{conf:.2f}%** {marker}"
+                    )
 
     elif page == "Interactive demo" and mode == "Upload your own image":
         st.header("Upload your own handwritten letter")
@@ -228,11 +300,27 @@ def main() -> None:
             rf_pred = int(rf_model.predict(x)[0])
             dt_letter = emnist_label_to_letter(dt_pred)
             rf_letter = emnist_label_to_letter(rf_pred)
+            
+            # Get confidence scores
+            dt_proba = dt_model.predict_proba(x)[0]
+            rf_proba = rf_model.predict_proba(x)[0]
+            
+            # Map predictions to probability indices using classes_
+            dt_pred_idx = np.where(dt_model.classes_ == dt_pred)[0][0]
+            rf_pred_idx = np.where(rf_model.classes_ == rf_pred)[0][0]
+            dt_confidence = dt_proba[dt_pred_idx] * 100
+            rf_confidence = rf_proba[rf_pred_idx] * 100
 
             st.subheader("Model predictions on your image")
             st.info("No ground-truth label here, so we just show what each model predicts.")
-            st.write(f"Decision Tree: **{dt_pred}** → **'{dt_letter}'**")
-            st.write(f"Random Forest: **{rf_pred}** → **'{rf_letter}'**")
+            st.write(
+                f"Decision Tree: **{dt_pred}** → **'{dt_letter}'** "
+                f"(confidence: **{dt_confidence:.2f}%**)"
+            )
+            st.write(
+                f"Random Forest: **{rf_pred}** → **'{rf_letter}'** "
+                f"(confidence: **{rf_confidence:.2f}%**)"
+            )
 
             if dt_pred == rf_pred:
                 st.success("Both models agree on the predicted letter.")
@@ -240,6 +328,30 @@ def main() -> None:
                 st.info(
                     "The models disagree on this example – this may be interesting for error analysis."
                 )
+            
+            # Top 10 predictions details
+            st.markdown("---")
+            with st.expander("📊 View Details: Top 10 Predictions", expanded=False):
+                dt_top10 = get_top_predictions(dt_proba, dt_model.classes_, top_k=10)
+                rf_top10 = get_top_predictions(rf_proba, rf_model.classes_, top_k=10)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.subheader("Decision Tree - Top 10 Guesses")
+                    for rank, (label, letter, conf) in enumerate(dt_top10, 1):
+                        st.write(
+                            f"{rank}. Label **{label}** → **'{letter}'** "
+                            f": **{conf:.2f}%**"
+                        )
+                
+                with col2:
+                    st.subheader("Random Forest - Top 10 Guesses")
+                    for rank, (label, letter, conf) in enumerate(rf_top10, 1):
+                        st.write(
+                            f"{rank}. Label **{label}** → **'{letter}'** "
+                            f": **{conf:.2f}%**"
+                        )
 
     elif page == "Evaluation & graphs":
         st.header("Evaluation & graphs")
