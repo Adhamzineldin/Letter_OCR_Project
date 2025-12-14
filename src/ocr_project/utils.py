@@ -4,13 +4,6 @@ from . import config
 
 
 def emnist_label_to_letter(label: int) -> str:
-    """
-    Map EMNIST 'letters' labels to lowercase ASCII letters.
-
-    According to the EMNIST Letters specification, labels are typically 1..26
-    mapped to 'a'..'z'. If your mapping file indicates a different convention,
-    adjust this function accordingly.
-    """
     return chr(ord("a") + int(label) - 1)
 
 

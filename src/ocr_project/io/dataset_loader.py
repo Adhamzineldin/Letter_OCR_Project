@@ -44,3 +44,23 @@ class EmnistLoader:
 
     def load_test(self, limit: int | None = None) -> DatasetSplit:
         return self._load_csv(self.test_csv, limit)
+
+    def load_combined(self, train_limit: int | None = None, test_limit: int | None = None) -> DatasetSplit:
+        """
+        Load and combine both train and test datasets for cross-validation.
+        
+        Args:
+            train_limit: Optional limit on number of training samples
+            test_limit: Optional limit on number of test samples
+            
+        Returns:
+            DatasetSplit containing combined images and labels
+        """
+        train_split = self.load_train(limit=train_limit)
+        test_split = self.load_test(limit=test_limit)
+        
+        # Combine images and labels
+        combined_images = np.concatenate([train_split.images, test_split.images], axis=0)
+        combined_labels = np.concatenate([train_split.labels, test_split.labels], axis=0)
+        
+        return DatasetSplit(combined_images, combined_labels)

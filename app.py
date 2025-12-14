@@ -49,6 +49,7 @@ FEATURE_DIRS = {
 def load_models(feature_type: str):
     """
     Load models + feature extractor for a given feature type.
+    Returns CV accuracy (mean), CV std, and test accuracy.
     """
     base_dir = FEATURE_DIRS[feature_type]
     dt_artifact = joblib.load(base_dir / "decision_tree.pkl")
@@ -56,16 +57,34 @@ def load_models(feature_type: str):
 
     dt_model = dt_artifact["model"]
     rf_model = rf_artifact["model"]
-    dt_acc = dt_artifact.get("accuracy")
-    rf_acc = rf_artifact.get("accuracy")
-
+    
+    # Get accuracies from metadata (new format) or fallback to old format
     metadata_dt = dt_artifact.get("metadata", {}) or {}
     metadata_rf = rf_artifact.get("metadata", {}) or {}
+    
+    # CV accuracies (mean)
+    dt_cv_acc = metadata_dt.get("cv_accuracy") or dt_artifact.get("accuracy")
+    rf_cv_acc = metadata_rf.get("cv_accuracy") or rf_artifact.get("accuracy")
+    
+    # CV std
+    dt_cv_std = metadata_dt.get("cv_accuracy_std", 0.0)
+    rf_cv_std = metadata_rf.get("cv_accuracy_std", 0.0)
+    
+    # Test accuracies
+    dt_test_acc = metadata_dt.get("test_accuracy") or dt_artifact.get("accuracy")
+    rf_test_acc = metadata_rf.get("test_accuracy") or rf_artifact.get("accuracy")
+    
     feature_extractor = metadata_dt.get("feature_extractor") or metadata_rf.get(
         "feature_extractor"
     )
 
-    return dt_model, rf_model, dt_acc, rf_acc, feature_extractor
+    return (
+        dt_model, rf_model,
+        dt_cv_acc, rf_cv_acc,  # CV mean accuracies
+        dt_cv_std, rf_cv_std,  # CV std
+        dt_test_acc, rf_test_acc,  # Test accuracies
+        feature_extractor
+    )
 
 
 @st.cache_resource
@@ -115,11 +134,12 @@ def get_top_predictions(proba: np.ndarray, model_classes: np.ndarray, top_k: int
     return results
 
 
-def load_all_accuracies() -> dict[str, dict[str, float | None]]:
+def load_all_accuracies() -> dict[str, dict[str, dict[str, float | None]]]:
     """
-    Read accuracies for all (feature_type, model) combos from artifacts.
+    Read CV and test accuracies for all (feature_type, model) combos from artifacts.
+    Returns dict with "cv", "cv_std", and "test" accuracies.
     """
-    results: dict[str, dict[str, float | None]] = {}
+    results: dict[str, dict[str, dict[str, float | None]]] = {}
     for ft, base_dir in FEATURE_DIRS.items():
         try:
             dt_artifact = joblib.load(base_dir / "decision_tree.pkl")
@@ -127,9 +147,20 @@ def load_all_accuracies() -> dict[str, dict[str, float | None]]:
         except FileNotFoundError:
             continue
 
+        metadata_dt = dt_artifact.get("metadata", {}) or {}
+        metadata_rf = rf_artifact.get("metadata", {}) or {}
+        
         results[ft] = {
-            "decision_tree": dt_artifact.get("accuracy"),
-            "random_forest": rf_artifact.get("accuracy"),
+            "decision_tree": {
+                "cv": metadata_dt.get("cv_accuracy") or dt_artifact.get("accuracy"),
+                "cv_std": metadata_dt.get("cv_accuracy_std", 0.0),
+                "test": metadata_dt.get("test_accuracy") or dt_artifact.get("accuracy"),
+            },
+            "random_forest": {
+                "cv": metadata_rf.get("cv_accuracy") or rf_artifact.get("accuracy"),
+                "cv_std": metadata_rf.get("cv_accuracy_std", 0.0),
+                "test": metadata_rf.get("test_accuracy") or rf_artifact.get("accuracy"),
+            },
         }
     return results
 
@@ -161,18 +192,36 @@ def main() -> None:
         format_func=lambda k: feature_labels.get(k, k),
     )
 
-    dt_model, rf_model, dt_acc, rf_acc, feature_extractor = load_models(feature_type)
+    (
+        dt_model, rf_model,
+        dt_cv_acc, rf_cv_acc,
+        dt_cv_std, rf_cv_std,
+        dt_test_acc, rf_test_acc,
+        feature_extractor
+    ) = load_models(feature_type)
     images, labels, X_test = get_transformed_test_features(feature_type)
 
     # Sidebar: aggregate comparison
     st.sidebar.header("Model comparison (current feature type)")
-    if dt_acc is not None and rf_acc is not None:
-        st.sidebar.write(f"Decision Tree accuracy: **{dt_acc:.3%}**")
-        st.sidebar.write(f"Random Forest accuracy: **{rf_acc:.3%}**")
-        diff = rf_acc - dt_acc
-        pct_diff = diff / dt_acc * 100 if dt_acc != 0 else 0.0
-        st.sidebar.write(f"Absolute difference (RF - DT): **{diff:.3%}**")
-        st.sidebar.write(f"Relative improvement of RF over DT: **{pct_diff:.2f}%**")
+    if dt_cv_acc is not None and rf_cv_acc is not None:
+        st.sidebar.markdown("**Cross-Validation Results:**")
+        if dt_cv_std > 0:
+            st.sidebar.write(f"Decision Tree CV: **{dt_cv_acc:.3%}** (±{dt_cv_std:.3%})")
+            st.sidebar.write(f"Random Forest CV: **{rf_cv_acc:.3%}** (±{rf_cv_std:.3%})")
+        else:
+            st.sidebar.write(f"Decision Tree CV: **{dt_cv_acc:.3%}**")
+            st.sidebar.write(f"Random Forest CV: **{rf_cv_acc:.3%}**")
+        
+        st.sidebar.markdown("**Holdout Test Set:**")
+        st.sidebar.write(f"Decision Tree: **{dt_test_acc:.3%}**")
+        st.sidebar.write(f"Random Forest: **{rf_test_acc:.3%}**")
+        
+        # Compare using test accuracy
+        diff = rf_test_acc - dt_test_acc
+        pct_diff = diff / dt_test_acc * 100 if dt_test_acc != 0 else 0.0
+        st.sidebar.markdown("---")
+        st.sidebar.write(f"Test difference (RF - DT): **{diff:.3%}**")
+        st.sidebar.write(f"Relative improvement: **{pct_diff:.2f}%**")
     else:
         st.sidebar.write("Train and save models first via the notebook.")
 
@@ -355,24 +404,55 @@ def main() -> None:
 
     elif page == "Evaluation & graphs":
         st.header("Evaluation & graphs")
+        
+        st.info("""
+        **Evaluation Methodology:**
+        - **Cross-Validation (CV)**: Mean accuracy from 5-fold CV on training data
+        - **Test Set**: Accuracy on holdout test set (data not seen during training)
+        """)
 
         # --- Per-feature-type accuracy overview ---
         all_accs = load_all_accuracies()
         if all_accs:
             st.subheader("Accuracy overview (all feature types)")
-            rows = []
+            rows_cv = []
+            rows_test = []
             for ft, models in all_accs.items():
-                for model_name, acc in models.items():
-                    if acc is None:
-                        continue
-                    rows.append((feature_labels.get(ft, ft), model_name, acc))
+                for model_name, acc_dict in models.items():
+                    cv_acc = acc_dict.get("cv")
+                    cv_std = acc_dict.get("cv_std", 0.0)
+                    test_acc = acc_dict.get("test")
+                    if cv_acc is not None:
+                        if cv_std > 0:
+                            rows_cv.append((
+                                feature_labels.get(ft, ft),
+                                model_name,
+                                f"{cv_acc:.3%} (±{cv_std:.3%})"
+                            ))
+                        else:
+                            rows_cv.append((
+                                feature_labels.get(ft, ft),
+                                model_name,
+                                f"{cv_acc:.3%}"
+                            ))
+                    if test_acc is not None:
+                        rows_test.append((
+                            feature_labels.get(ft, ft),
+                            model_name,
+                            test_acc
+                        ))
 
-            if rows:
+            if rows_cv:
                 import pandas as pd
 
-                df = pd.DataFrame(rows, columns=["Feature type", "Model", "Accuracy"])
+                st.markdown("**Cross-Validation Results (Training Data):**")
+                df_cv = pd.DataFrame(rows_cv, columns=["Feature type", "Model", "CV Accuracy"])
+                st.dataframe(df_cv, use_container_width=True)
+                
+                st.markdown("**Holdout Test Set Results:**")
+                df_test = pd.DataFrame(rows_test, columns=["Feature type", "Model", "Test Accuracy"])
                 st.dataframe(
-                    df.style.format({"Accuracy": "{:.3%}"}),
+                    df_test.style.format({"Test Accuracy": "{:.3%}"}),
                     use_container_width=True,
                 )
 
@@ -381,18 +461,31 @@ def main() -> None:
             f"Detailed evaluation for {feature_labels.get(feature_type, feature_type)}"
         )
 
-        # Compute predictions on the full test set
+        # Compute predictions on the full test set (holdout set)
         dt_preds = dt_model.predict(X_test)
         rf_preds = rf_model.predict(X_test)
 
-        # Summary metrics
+        # Summary metrics - show both CV and test results
+        st.markdown("### Model Performance Summary")
         col1, col2 = st.columns(2)
         with col1:
+            st.markdown("**Decision Tree**")
+            if dt_cv_std > 0:
+                st.metric("CV Accuracy", f"{dt_cv_acc:.3%}", f"±{dt_cv_std:.3%}")
+            else:
+                st.metric("CV Accuracy", f"{dt_cv_acc:.3%}")
+            # Test accuracy from actual evaluation
             dt_acc_full = (dt_preds == labels).mean()
-            st.metric("Decision Tree accuracy", f"{dt_acc_full:.3%}")
+            st.metric("Test Set Accuracy", f"{dt_acc_full:.3%}")
         with col2:
+            st.markdown("**Random Forest**")
+            if rf_cv_std > 0:
+                st.metric("CV Accuracy", f"{rf_cv_acc:.3%}", f"±{rf_cv_std:.3%}")
+            else:
+                st.metric("CV Accuracy", f"{rf_cv_acc:.3%}")
+            # Test accuracy from actual evaluation
             rf_acc_full = (rf_preds == labels).mean()
-            st.metric("Random Forest accuracy", f"{rf_acc_full:.3%}")
+            st.metric("Test Set Accuracy", f"{rf_acc_full:.3%}")
 
         # Confusion matrices
         st.subheader("Confusion matrices")
