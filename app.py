@@ -98,7 +98,14 @@ def get_transformed_test_features(feature_type: str):
     you move the sample slider).
     """
     images, labels, X_test_raw = load_test_data()
-    _, _, _, _, feature_extractor = load_models(feature_type)
+    # Unpack all 9 values but only use feature_extractor
+    (
+        _, _,  # dt_model, rf_model
+        _, _,  # dt_cv_acc, rf_cv_acc
+        _, _,  # dt_cv_std, rf_cv_std
+        _, _,  # dt_test_acc, rf_test_acc
+        feature_extractor  # feature_extractor
+    ) = load_models(feature_type)
 
     if feature_extractor is not None:
         X_test = feature_extractor.transform(X_test_raw)
